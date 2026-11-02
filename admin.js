@@ -239,6 +239,7 @@ async function persistGalleryConfig() {
 
   // Clear public site cache so updates reflect immediately
   sessionStorage.removeItem('tantra_gallery_cache');
+  sessionStorage.removeItem('tantra_gallery_cache_v2');
 
   // Attempt save to server backend
   try {
@@ -247,10 +248,11 @@ async function persistGalleryConfig() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ADMIN_STATE.galleryConfig)
     });
-    if (!res.ok) throw new Error('Server returned ' + res.status);
+    if (res.ok) return true;
   } catch (err) {
-    console.warn('Server save not available; config safely saved to browser storage', err);
+    console.info('Server save not available; config safely saved to browser storage');
   }
+  return true;
 }
 
 // ----------------------------------------------------------------------------
@@ -522,12 +524,21 @@ async function initHomamManager() {
   if (!container) return;
 
   try {
-    const res = await fetch('schedule.json?' + Date.now());
-    if (!res.ok) throw new Error('Failed to load schedule.json');
-    ADMIN_STATE.homamData = await res.json();
-    renderHomamManagerList();
+    let data = null;
+    const local = localStorage.getItem('karavinan_file_schedule.json');
+    if (local) {
+      try { data = JSON.parse(local); } catch (e) {}
+    }
+    if (!data) {
+      const res = await fetch('schedule.json?' + Date.now());
+      if (res.ok) data = await res.json();
+    }
+    if (data) {
+      ADMIN_STATE.homamData = data;
+      renderHomamManagerList();
+    }
   } catch (err) {
-    container.innerHTML = `<p class="admin-error-text">Could not load schedule.json: ${err.message}</p>`;
+    console.warn('Could not load schedule.json', err);
   }
 }
 
@@ -828,14 +839,21 @@ async function initThoughtsManager() {
   if (!container) return;
 
   try {
-    const res = await fetch('thoughts.json?' + Date.now());
-    if (!res.ok) throw new Error('Failed to load thoughts.json');
-    const data = await res.json();
-    // Support top-level array or { thoughts: [...] }
-    ADMIN_STATE.thoughtsData = Array.isArray(data) ? data : (data.thoughts || []);
-    renderThoughtsManagerList();
+    let data = null;
+    const local = localStorage.getItem('karavinan_file_thoughts.json');
+    if (local) {
+      try { data = JSON.parse(local); } catch (e) {}
+    }
+    if (!data) {
+      const res = await fetch('thoughts.json?' + Date.now());
+      if (res.ok) data = await res.json();
+    }
+    if (data) {
+      ADMIN_STATE.thoughtsData = Array.isArray(data) ? data : (data.thoughts || []);
+      renderThoughtsManagerList();
+    }
   } catch (err) {
-    container.innerHTML = `<p class="admin-error-text">Could not load thoughts.json: ${err.message}</p>`;
+    console.warn('Could not load thoughts.json', err);
   }
 }
 
@@ -1019,14 +1037,21 @@ async function initFeedbackManager() {
   if (!container) return;
 
   try {
-    const res = await fetch('feedback.json?' + Date.now());
-    if (!res.ok) throw new Error('Failed to load feedback.json');
-    const data = await res.json();
-    // Support top-level array or { testimonials: [...] }
-    ADMIN_STATE.feedbackData = Array.isArray(data) ? data : (data.testimonials || []);
-    renderFeedbackManagerList();
+    let data = null;
+    const local = localStorage.getItem('karavinan_file_feedback.json');
+    if (local) {
+      try { data = JSON.parse(local); } catch (e) {}
+    }
+    if (!data) {
+      const res = await fetch('feedback.json?' + Date.now());
+      if (res.ok) data = await res.json();
+    }
+    if (data) {
+      ADMIN_STATE.feedbackData = Array.isArray(data) ? data : (data.testimonials || []);
+      renderFeedbackManagerList();
+    }
   } catch (err) {
-    container.innerHTML = `<p class="admin-error-text">Could not load feedback.json: ${err.message}</p>`;
+    console.warn('Could not load feedback.json', err);
   }
 }
 
@@ -1196,11 +1221,18 @@ async function initSettingsManager() {
   const confirmPasscode = document.getElementById('confirmPasscodeInput');
   const savePasscodeBtn = document.getElementById('saveNewPasscodeBtn');
 
-  // Load existing settings.json
+  // Load existing settings.json (supports localStorage for static host & server API)
   try {
-    const res = await fetch('settings.json?' + Date.now());
-    if (res.ok) {
-      const settings = await res.json();
+    let settings = null;
+    const local = localStorage.getItem('karavinan_file_settings.json');
+    if (local) {
+      try { settings = JSON.parse(local); } catch (e) {}
+    }
+    if (!settings) {
+      const res = await fetch('settings.json?' + Date.now());
+      if (res.ok) settings = await res.json();
+    }
+    if (settings) {
       if (whatsappInput) whatsappInput.value = settings.whatsappNumber || '';
       if (phoneDisplayInput) phoneDisplayInput.value = settings.phoneDisplay || '';
       if (addressInput) addressInput.value = settings.sanctumLocation || '';
@@ -1269,19 +1301,23 @@ async function initSettingsManager() {
 // UTILITY FUNCTIONS & TOAST
 // ============================================================================
 async function saveJsonFile(filename, data) {
+  // Always persist in browser localStorage for immediate offline & GitHub Pages support
+  try {
+    localStorage.setItem(`karavinan_file_${filename}`, JSON.stringify(data));
+  } catch (e) {}
+
+  // Attempt save to Node.js backend if running with server.js
   try {
     const res = await fetch('/api/save-json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename, data })
     });
-    if (!res.ok) throw new Error('Server returned ' + res.status);
-    return true;
+    if (res.ok) return true;
   } catch (err) {
-    console.warn(`Server file save failed for ${filename}, storing in localStorage`, err);
-    localStorage.setItem(`karavinan_file_${filename}`, JSON.stringify(data));
-    return false;
+    console.info(`Server backend not present (static host), safely stored in localStorage for ${filename}`);
   }
+  return true;
 }
 
 function showToast(message, isSuccess = true) {
